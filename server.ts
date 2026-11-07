@@ -17,24 +17,21 @@ let pythonProcess: ChildProcess | null = null;
 function startPythonBackend() {
   console.log(`[VerityMeet] Starting Python FastAPI backend on port ${FASTAPI_PORT}...`);
   
-  // Use python in venv if present, otherwise system python
+  // Choose python executable
   let pythonCmd = 'python3';
   if (process.platform === 'win32') {
     pythonCmd = 'python';
-  } else if (process.env.VIRTUAL_ENV) {
-    pythonCmd = `${process.env.VIRTUAL_ENV}/bin/python`;
   } else {
-    // Check if /opt/venv exists
-    try {
-      pythonCmd = '/opt/venv/bin/python';
-    } catch {
-      pythonCmd = 'python3';
-    }
+    // In Linux Docker, virtualenv is at /opt/venv/bin/python
+    pythonCmd = '/opt/venv/bin/python';
   }
+
+  // Ensure python runs in the project root directory
+  const projectRoot = isProd ? path.resolve(__dirname, '..') : __dirname;
 
   pythonProcess = spawn(pythonCmd, ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(FASTAPI_PORT)], {
     stdio: 'inherit',
-    cwd: __dirname,
+    cwd: projectRoot,
     env: {
       ...process.env,
       PATH: `/opt/venv/bin:${process.env.PATH || ''}`
@@ -43,12 +40,11 @@ function startPythonBackend() {
 
   pythonProcess.on('error', (err) => {
     console.error(`[VerityMeet] Failed to start Python backend with ${pythonCmd}:`, err);
-    // Fallback to standard python3
     if (pythonCmd !== 'python3' && process.platform !== 'win32') {
       console.log('[VerityMeet] Retrying with python3 from PATH...');
       pythonProcess = spawn('python3', ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(FASTAPI_PORT)], {
         stdio: 'inherit',
-        cwd: __dirname
+        cwd: projectRoot
       });
     }
   });
@@ -94,6 +90,8 @@ async function startServer() {
 
   app.use('/api', apiProxy);
 
+  const staticDir = isProd ? path.resolve(__dirname) : path.resolve(__dirname, 'dist');
+
   if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -101,9 +99,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.use(express.static(staticDir));
     app.get('*', (req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.resolve(staticDir, 'index.html'));
     });
   }
 
