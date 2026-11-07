@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy package definition and install npm dependencies
+# Copy package definition and install npm dependencies with legacy peer deps
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
 # Copy requirements and setup python virtual environment
 COPY backend/requirements.txt ./backend/
