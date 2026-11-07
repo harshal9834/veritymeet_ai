@@ -1,24 +1,36 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { SettingsModal } from './components/SettingsModal';
+import { LandingPage } from './pages/LandingPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CreateBriefingPage } from './pages/CreateBriefingPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { BriefingPage } from './pages/BriefingPage';
 import { VerificationPage } from './pages/VerificationPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { SignInPage } from './pages/SignInPage';
+import { SignUpPage } from './pages/SignUpPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { SystemHealth, DashboardStats, Meeting } from './types';
 import { api } from './services/api';
 
-export default function App() {
-  const [currentTab, setCurrentTab] = useState<string>('dashboard');
+function MainApp() {
+  const { user, isAuthenticated, isLoading: authLoading, logout } = useAuth();
+  
+  // Navigation states: 'landing' | 'signin' | 'signup' | 'forgot-password' | 'reset-password' | 'dashboard' | 'create' | 'progress' | 'briefing' | 'verification' | 'history' | 'settings'
+  const [currentTab, setCurrentTab] = useState<string>('landing');
+  const [resetToken, setResetToken] = useState<string>('');
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [activeMeeting, setActiveMeeting] = useState<Meeting | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const loadHealth = useCallback(async () => {
     try {
@@ -44,8 +56,14 @@ export default function App() {
 
   useEffect(() => {
     loadHealth();
-    loadData();
-  }, [loadHealth, loadData]);
+  }, [loadHealth]);
+
+  // When user signs in, load their user-specific briefings & stats
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadData();
+    }
+  }, [isAuthenticated, loadData]);
 
   // When active meeting ID changes, load its details
   useEffect(() => {
@@ -60,7 +78,6 @@ export default function App() {
 
   const handleOpenMeeting = (id: string) => {
     setActiveMeetingId(id);
-    // Find meeting status
     const target = meetings.find(m => m.id === id);
     if (target?.status === 'completed') {
       setCurrentTab('briefing');
@@ -77,43 +94,149 @@ export default function App() {
     loadData();
   };
 
+  const handleDeleteMeeting = async (id: string) => {
+    try {
+      await api.deleteMeeting(id);
+      if (activeMeetingId === id) {
+        setActiveMeetingId(null);
+        setCurrentTab('dashboard');
+      }
+      loadData();
+    } catch (e: any) {
+      alert(e.message || 'Failed to delete meeting');
+    }
+  };
+
   const handleExportPdf = () => {
     if (activeMeetingId) {
       window.open(api.getExportPdfUrl(activeMeetingId), '_blank');
     }
   };
 
+  const handleLogout = async () => {
+    await logout();
+    setCurrentTab('landing');
+  };
+
+  // Route protection guard
+  const protectedTabs = ['dashboard', 'create', 'progress', 'briefing', 'verification', 'history', 'settings'];
+
+  // Handle protected route interception
+  const navigateToTab = (tab: string) => {
+    if (protectedTabs.includes(tab) && !isAuthenticated && !authLoading) {
+      setCurrentTab('signin');
+      return;
+    }
+    setCurrentTab(tab);
+  };
+
+  // 1. Public Landing Page
+  if (currentTab === 'landing') {
+    return (
+      <LandingPage 
+        onEnterApp={() => {
+          if (isAuthenticated) {
+            setCurrentTab('dashboard');
+          } else {
+            setCurrentTab('signin');
+          }
+        }}
+        onNavigateSignIn={() => setCurrentTab('signin')}
+        onNavigateSignUp={() => setCurrentTab('signup')}
+      />
+    );
+  }
+
+  // 2. Authentication Pages
+  if (currentTab === 'signin') {
+    return (
+      <SignInPage
+        onSuccess={() => {
+          setCurrentTab('dashboard');
+          loadData();
+        }}
+        onNavigateSignUp={() => setCurrentTab('signup')}
+        onNavigateForgotPassword={() => setCurrentTab('forgot-password')}
+        onGoHome={() => setCurrentTab('landing')}
+      />
+    );
+  }
+
+  if (currentTab === 'signup') {
+    return (
+      <SignUpPage
+        onSuccess={() => {
+          setCurrentTab('dashboard');
+          loadData();
+        }}
+        onNavigateSignIn={() => setCurrentTab('signin')}
+        onGoHome={() => setCurrentTab('landing')}
+      />
+    );
+  }
+
+  if (currentTab === 'forgot-password') {
+    return (
+      <ForgotPasswordPage
+        onNavigateSignIn={() => setCurrentTab('signin')}
+        onNavigateResetPasswordWithToken={(tok) => {
+          setResetToken(tok);
+          setCurrentTab('reset-password');
+        }}
+        onGoHome={() => setCurrentTab('landing')}
+      />
+    );
+  }
+
+  if (currentTab === 'reset-password') {
+    return (
+      <ResetPasswordPage
+        initialToken={resetToken}
+        onSuccess={() => setCurrentTab('signin')}
+        onNavigateSignIn={() => setCurrentTab('signin')}
+        onGoHome={() => setCurrentTab('landing')}
+      />
+    );
+  }
+
+  // 3. Authenticated App Layout (Protected Routes)
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-[#F3F4F9] overflow-hidden font-sans">
+      {/* Dark Navy Sidebar */}
       <Sidebar
         currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
+        setCurrentTab={navigateToTab}
         health={health}
         onOpenSettings={() => setIsSettingsOpen(true)}
         activeMeetingId={activeMeetingId}
+        onGoLanding={() => setCurrentTab('landing')}
+        user={user}
+        onLogout={handleLogout}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
       {/* Main Viewport */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         {/* Top Header */}
         <Header
           currentTab={currentTab}
           activeMeetingTarget={activeMeeting?.target_name}
-          onOpenSettings={() => setIsSettingsOpen(true)}
-          onNewBriefing={() => setCurrentTab('create')}
-          onExportPdf={handleExportPdf}
-          canExportPdf={Boolean(activeMeetingId && currentTab === 'briefing')}
+          user={user}
+          onNewBriefing={() => navigateToTab('create')}
+          onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+          onNavigateTab={navigateToTab}
         />
 
         {/* Content Canvas */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8">
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 py-4 sm:py-6">
           {currentTab === 'dashboard' && (
             <DashboardPage
               stats={stats}
               meetings={meetings}
-              onNewBriefing={() => setCurrentTab('create')}
+              onNewBriefing={() => navigateToTab('create')}
               onOpenMeeting={handleOpenMeeting}
+              onDeleteMeeting={handleDeleteMeeting}
             />
           )}
 
@@ -132,41 +255,55 @@ export default function App() {
                 setCurrentTab('briefing');
                 loadData();
               }}
+              onNewBriefing={() => navigateToTab('create')}
             />
           )}
 
           {currentTab === 'briefing' && activeMeetingId && (
             <BriefingPage
               meetingId={activeMeetingId}
-              onOpenVerification={() => setCurrentTab('verification')}
+              onOpenVerification={() => navigateToTab('verification')}
+              onDeleteMeeting={handleDeleteMeeting}
             />
           )}
 
-          {currentTab === 'verification' && activeMeetingId && (
+          {currentTab === 'verification' && (
             <VerificationPage
-              meetingId={activeMeetingId}
+              meetingId={activeMeetingId || undefined}
             />
           )}
 
           {currentTab === 'history' && (
             <HistoryPage
               onOpenMeeting={handleOpenMeeting}
-              onNewBriefing={() => setCurrentTab('create')}
+              onNewBriefing={() => navigateToTab('create')}
+            />
+          )}
+
+          {currentTab === 'settings' && (
+            <SettingsPage
+              health={health}
+              onHealthUpdate={loadHealth}
             />
           )}
         </main>
       </div>
 
-      {/* Settings Modal */}
+      {/* Quick Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         health={health}
-        onHealthUpdate={() => {
-          loadHealth();
-          loadData();
-        }}
+        onHealthUpdate={loadHealth}
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   );
 }

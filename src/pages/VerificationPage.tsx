@@ -1,280 +1,214 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { 
-  Claim, 
-  Source, 
-  Meeting 
-} from '../types';
-import { api } from '../services/api';
-import { ClaimCard } from '../components/ClaimCard';
+import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, 
-  CheckCircle, 
-  AlertTriangle, 
+  Search, 
+  Filter, 
+  ExternalLink, 
+  CheckCircle2, 
   XCircle, 
-  Clock, 
-  Filter,
-  BarChart2,
-  PieChart as PieIcon,
-  Loader2
+  AlertTriangle, 
+  RefreshCw,
+  Loader2,
+  Calendar,
+  Building
 } from 'lucide-react';
-import { 
-  PieChart, 
-  Pie, 
-  Cell, 
-  ResponsiveContainer, 
-  Tooltip, 
-  Legend, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid 
-} from 'recharts';
+import { Claim } from '../types';
+import { api } from '../services/api';
+import { FreshnessGauge } from '../components/FreshnessGauge';
 
 interface VerificationPageProps {
-  meetingId: string;
+  meetingId?: string;
 }
 
 export const VerificationPage: React.FC<VerificationPageProps> = ({ meetingId }) => {
-  const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [filter, setFilter] = useState<'ALL' | 'FRESH' | 'STALE' | 'UNCERTAIN' | 'STABLE'>('ALL');
   const [isLoading, setIsLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    const load = async () => {
+    const fetchClaims = async () => {
       setIsLoading(true);
       try {
-        const [m, c, b] = await Promise.all([
-          api.getMeeting(meetingId),
-          api.getClaims(meetingId),
-          api.getBriefing(meetingId).catch(() => ({ sources: [] }))
-        ]);
-        setMeeting(m);
-        setClaims(c.claims);
-        setSources(b.sources || []);
+        if (meetingId) {
+          const res = await api.getClaims(meetingId);
+          setClaims(res.claims || []);
+        } else {
+          const res = await api.listAllClaims();
+          setClaims(res.claims || []);
+        }
       } catch (err) {
-        console.error(err);
+        console.error('Failed to load claims', err);
       } finally {
         setIsLoading(false);
       }
     };
-    load();
+
+    fetchClaims();
   }, [meetingId]);
 
-  const sourcesMap = useMemo(() => {
-    return sources.reduce((acc, s) => {
-      acc[s.id] = s;
-      return acc;
-    }, {} as Record<string, Source>);
-  }, [sources]);
+  const filteredClaims = claims.filter(c => {
+    const matchesStatus = filterStatus === 'ALL' || c.status === filterStatus;
+    const matchesSearch = c.claim_text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          c.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (c.target_name && c.target_name.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesStatus && matchesSearch;
+  });
 
-  // Counts
-  const freshCount = useMemo(() => claims.filter(c => c.status === 'FRESH').length, [claims]);
-  const staleCount = useMemo(() => claims.filter(c => c.status === 'STALE').length, [claims]);
-  const uncertainCount = useMemo(() => claims.filter(c => c.status === 'UNCERTAIN').length, [claims]);
-  const stableCount = useMemo(() => claims.filter(c => !c.time_sensitive).length, [claims]);
-
-  // Filtered claims
-  const filteredClaims = useMemo(() => {
-    if (filter === 'ALL') return claims;
-    if (filter === 'STABLE') return claims.filter(c => !c.time_sensitive);
-    return claims.filter(c => c.status === filter);
-  }, [claims, filter]);
-
-  // Chart data
-  const pieData = [
-    { name: 'Fresh Facts', value: freshCount, color: '#10B981' },
-    { name: 'Stale (Corrected)', value: staleCount, color: '#F43F5E' },
-    { name: 'Uncertain', value: uncertainCount, color: '#F59E0B' },
-  ].filter(d => d.value > 0);
-
-  // Category distribution
-  const categoryData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    claims.forEach(c => {
-      const cat = c.category || 'General';
-      counts[cat] = (counts[cat] || 0) + 1;
-    });
-    return Object.entries(counts).map(([name, count]) => ({ name, count }));
-  }, [claims]);
-
-  if (isLoading) {
-    return (
-      <div className="max-w-4xl mx-auto p-12 text-center space-y-3">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto" />
-        <h3 className="text-sm font-semibold text-slate-800">Loading Claim Verification Audit...</h3>
-      </div>
-    );
-  }
+  const freshCount = claims.filter(c => c.status === 'FRESH').length;
+  const staleCount = claims.filter(c => c.status === 'STALE').length;
+  const uncertainCount = claims.filter(c => c.status === 'UNCERTAIN').length;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
-      {/* Top Header */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-          Claim Verification & Stale-Answer Audit
-        </h2>
-        <p className="text-xs text-slate-500 mt-1">
-          Detailed inspection of atomic factual claims extracted for <span className="font-semibold text-slate-800">{meeting?.target_name}</span>. Audited against live Tavily web proof with 4-factor scoring.
-        </p>
-      </div>
-
-      {/* Verification Overview Stats Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-          <span className="text-[11px] font-medium text-slate-500 block">Total Claims Audited</span>
-          <span className="text-2xl font-bold font-mono text-slate-900 mt-1 block">{claims.length}</span>
-          <span className="text-[10px] text-slate-400">Atomic factual statements</span>
-        </div>
-
-        <div className="bg-white rounded-xl border border-emerald-200 p-4 shadow-xs bg-emerald-50/20">
-          <span className="text-[11px] font-medium text-emerald-800 block">Fresh Facts</span>
-          <span className="text-2xl font-bold font-mono text-emerald-700 mt-1 block">{freshCount}</span>
-          <span className="text-[10px] text-emerald-600">Supported by current web proof</span>
-        </div>
-
-        <div className="bg-white rounded-xl border border-rose-200 p-4 shadow-xs bg-rose-50/20">
-          <span className="text-[11px] font-medium text-rose-800 block">Stale Claims (Corrected)</span>
-          <span className="text-2xl font-bold font-mono text-rose-700 mt-1 block">{staleCount}</span>
-          <span className="text-[10px] text-rose-600">Disproven & updated</span>
-        </div>
-
-        <div className="bg-white rounded-xl border border-amber-200 p-4 shadow-xs bg-amber-50/20">
-          <span className="text-[11px] font-medium text-amber-800 block">Uncertain / Unverified</span>
-          <span className="text-2xl font-bold font-mono text-amber-700 mt-1 block">{uncertainCount}</span>
-          <span className="text-[10px] text-amber-600">Conflicting or insufficient proof</span>
-        </div>
-      </div>
-
-      {/* Freshness Distribution Visual Chart */}
-      {claims.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-              <PieIcon className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Evidence Freshness Distribution</span>
-            </h3>
-            <span className="text-[11px] text-slate-500">
-              Live web proof distribution
+    <div className="max-w-6xl mx-auto space-y-6 pb-20 text-slate-900">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="w-6 h-6 rounded-md bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-xs">
+              <ShieldCheck className="w-4 h-4" />
             </span>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">
+              Deterministic Verification & Freshness Audit Log
+            </h1>
           </div>
+          <p className="text-xs text-slate-500">
+            Real-time audit records extracted from Tavily live search results. Evaluated by our 4-factor scoring model.
+          </p>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-            <div className="h-44 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={75}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: '11px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="h-44 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={categoryData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
-                  <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#6366F1" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+        {/* Stats Pills */}
+        <div className="flex items-center gap-2">
+          <div className="px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>{freshCount} Fresh</span>
           </div>
+          <div className="px-3 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-1.5">
+            <XCircle className="w-4 h-4 text-rose-600" />
+            <span>{staleCount} Stale</span>
+          </div>
+          <div className="px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600" />
+            <span>{uncertainCount} Uncertain</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="relative w-full sm:w-72">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Search claims, entities, categories..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full text-xs pl-9 pr-3.5 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          {(['ALL', 'FRESH', 'STALE', 'UNCERTAIN'] as const).map((status) => (
+            <button
+              key={status}
+              onClick={() => setFilterStatus(status)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                filterStatus === status 
+                  ? 'bg-indigo-600 text-white shadow-xs' 
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Claims List */}
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center p-12 space-y-2">
+          <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
+          <p className="text-xs text-slate-500">Loading claim verification data...</p>
+        </div>
+      ) : filteredClaims.length === 0 ? (
+        <div className="p-12 text-center bg-white rounded-2xl border border-slate-200">
+          <p className="text-sm text-slate-500">No verified claims matching your criteria.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredClaims.map((claim) => (
+            <div key={claim.id} className="p-5 bg-white rounded-2xl border border-slate-200 shadow-xs space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      claim.status === 'FRESH'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : claim.status === 'STALE'
+                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                    }`}>
+                      {claim.status}
+                    </span>
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                      {claim.category}
+                    </span>
+                    {claim.target_name && (
+                      <span className="text-xs text-indigo-600 font-bold">
+                        • {claim.target_name}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-bold text-sm text-slate-900 mt-1">{claim.claim_text}</h3>
+                </div>
+
+                {claim.freshness_score !== undefined && (
+                  <div className="text-right shrink-0">
+                    <span className="text-lg font-black text-slate-800">
+                      {Math.round(claim.freshness_score)}<span className="text-xs text-slate-400">/100</span>
+                    </span>
+                    <span className="block text-[10px] text-slate-400 uppercase font-semibold">Freshness</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Evidence & Explanation */}
+              {claim.evidence_summary && (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-700 leading-relaxed">
+                  <span className="font-bold text-slate-800 block text-[10px] uppercase mb-0.5">Live Evidence Summary:</span>
+                  {claim.evidence_summary}
+                </div>
+              )}
+
+              {/* Corrected Claim if Stale */}
+              {claim.status === 'STALE' && claim.corrected_claim && (
+                <div className="p-3 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs text-emerald-950">
+                  <span className="font-bold text-emerald-800 text-[10px] uppercase block mb-0.5">Verified Correction:</span>
+                  {claim.corrected_claim}
+                </div>
+              )}
+
+              {/* 4-Factor Breakdown Chips */}
+              {claim.score_breakdown && (
+                <div className="flex flex-wrap gap-2 pt-1 text-[11px]">
+                  <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600">
+                    Source Reliability: <strong>{claim.score_breakdown.source_reliability}%</strong>
+                  </span>
+                  <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600">
+                    Agreement: <strong>{claim.score_breakdown.evidence_agreement}%</strong>
+                  </span>
+                  <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600">
+                    Recency: <strong>{claim.score_breakdown.evidence_recency}%</strong>
+                  </span>
+                  <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600">
+                    Match: <strong>{claim.score_breakdown.claim_matching}%</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
-
-      {/* Segmented Filter Control */}
-      <div className="flex items-center justify-between gap-4 pt-2">
-        <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-          <button
-            onClick={() => setFilter('ALL')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              filter === 'ALL'
-                ? 'bg-white text-slate-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            All Claims ({claims.length})
-          </button>
-          <button
-            onClick={() => setFilter('FRESH')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              filter === 'FRESH'
-                ? 'bg-white text-emerald-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Fresh ({freshCount})
-          </button>
-          <button
-            onClick={() => setFilter('STALE')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              filter === 'STALE'
-                ? 'bg-white text-rose-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Stale / Corrected ({staleCount})
-          </button>
-          <button
-            onClick={() => setFilter('UNCERTAIN')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              filter === 'UNCERTAIN'
-                ? 'bg-white text-amber-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Uncertain ({uncertainCount})
-          </button>
-          <button
-            onClick={() => setFilter('STABLE')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              filter === 'STABLE'
-                ? 'bg-white text-slate-800 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Stable ({stableCount})
-          </button>
-        </div>
-
-        <span className="text-xs text-slate-500">
-          Showing {filteredClaims.length} of {claims.length} claims
-        </span>
-      </div>
-
-      {/* Claim Cards List */}
-      <div className="space-y-4">
-        {filteredClaims.length === 0 ? (
-          <div className="p-8 text-center bg-white rounded-xl border border-slate-200">
-            <p className="text-xs text-slate-500">No claims match the selected filter.</p>
-          </div>
-        ) : (
-          filteredClaims.map(c => (
-            <ClaimCard
-              key={c.claim_id}
-              claim={c}
-              sourcesMap={sourcesMap}
-            />
-          ))
-        )}
-      </div>
     </div>
   );
 };

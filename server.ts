@@ -16,7 +16,8 @@ let pythonProcess: ChildProcess | null = null;
 
 function startPythonBackend() {
   console.log(`[VerityMeet] Starting Python FastAPI backend on port ${FASTAPI_PORT}...`);
-  pythonProcess = spawn('python3', ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(FASTAPI_PORT)], {
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  pythonProcess = spawn(pythonCmd, ['-m', 'uvicorn', 'backend.app.main:app', '--host', '127.0.0.1', '--port', String(FASTAPI_PORT)], {
     stdio: 'inherit',
     cwd: __dirname
   });
@@ -42,6 +43,9 @@ async function startServer() {
     target: `http://127.0.0.1:${FASTAPI_PORT}`,
     changeOrigin: true,
     ws: true,
+    pathRewrite: {
+      '^/': '/api/'
+    },
     on: {
       error: (err: any, req: any, res: any) => {
         console.error('[VerityMeet Proxy Error]:', err?.message);

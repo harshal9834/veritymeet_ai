@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+__pycache__
+*.pyc
+*.pyo
+.git
+.DS_Store
+veritymeet.db-journal

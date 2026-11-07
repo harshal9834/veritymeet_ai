@@ -6,12 +6,14 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Response
 from pydantic import BaseModel
 
 from backend.app.config import settings, env_path
+from fastapi import Depends
+from backend.app.api.auth import get_current_user_optional, get_current_user
 from backend.app.schemas.meeting import MeetingCreateRequest, MeetingResponse
 from backend.app.schemas.briefing import FinalBriefingResponse
 from backend.app.database.db import (
     create_meeting, get_meeting, list_meetings, update_meeting_status,
     get_workflow_events, get_briefing_for_meeting, get_claims_for_meeting,
-    get_sources_for_meeting, get_stats
+    get_sources_for_meeting, get_stats, delete_meeting
 )
 from backend.app.agent.graph import execute_meeting_workflow
 from backend.app.api.reports import generate_meeting_pdf
@@ -91,16 +93,18 @@ def update_config(payload: ConfigUpdateRequest):
     }
 
 @router.get("/stats")
-def get_dashboard_stats():
-    return get_stats()
+def get_dashboard_stats(current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
+    user_id = current_user["id"] if current_user else None
+    return get_stats(user_id=user_id)
 
 @router.get("/meetings")
-def list_all_meetings():
-    meetings = list_meetings()
+def list_all_meetings(current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
+    user_id = current_user["id"] if current_user else None
+    meetings = list_meetings(user_id=user_id)
     return {"meetings": meetings}
 
 @router.post("/meetings", status_code=201)
-def create_meeting_endpoint(req: MeetingCreateRequest, background_tasks: BackgroundTasks):
+def create_meeting_endpoint(req: MeetingCreateRequest, background_tasks: BackgroundTasks, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
     cred_status = settings.validate_credentials()
     if not cred_status["ready"]:
         missing = ", ".join(cred_status["missing_keys"])
@@ -110,18 +114,13 @@ def create_meeting_endpoint(req: MeetingCreateRequest, background_tasks: Backgro
         )
 
     meeting_id = str(uuid.uuid4())
-    meeting_data = {
-        "id": meeting_id,
-        "target_name": req.target_name.strip(),
-        "meeting_date": req.meeting_date.strip(),
-        "meeting_time": req.meeting_time.strip(),
-        "meeting_type": req.meeting_type.strip(),
-        "context": req.context or "",
-        "objective": req.objective or "",
-        "interests": req.interests or [],
-        "status": "processing",
-        "current_step": "input_validation"
-    }
+    meeting_data = req.dict()
+    meeting_data["id"] = meeting_id
+    if current_user:
+        meeting_data["user_id"] = current_user["id"]
+    meeting_data["target_name"] = req.target_name.strip()
+    meeting_data["status"] = "processing"
+    meeting_data["current_step"] = "input_validation"
 
     create_meeting(meeting_data)
 
@@ -157,7 +156,7 @@ def get_meeting_progress_endpoint(meeting_id: str):
         "status": meeting["status"],
         "current_step": meeting["current_step"],
         "error_message": meeting.get("error_message"),
-        "events": events
+        "events": events, "sources_count": len(get_sources_for_meeting(meeting_id)), "claims_count": len(get_claims_for_meeting(meeting_id))
     }
 
 @router.get("/meetings/{meeting_id}/briefing")
@@ -179,9 +178,22 @@ def get_meeting_claims_endpoint(meeting_id: str):
     meeting = get_meeting(meeting_id)
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-
     claims = get_claims_for_meeting(meeting_id)
     return {"meeting_id": meeting_id, "claims": claims}
+
+@router.delete("/meetings/{meeting_id}")
+def delete_meeting_endpoint(meeting_id: str):
+    meeting = get_meeting(meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    delete_meeting(meeting_id)
+    return {"status": "deleted", "id": meeting_id}
+
+@router.get("/claims")
+def list_claims_endpoint(limit: int = 100, current_user: Optional[Dict[str, Any]] = Depends(get_current_user_optional)):
+    from backend.app.database.db import list_all_claims
+    user_id = current_user["id"] if current_user else None
+    return {"claims": list_all_claims(limit, user_id=user_id)}
 
 @router.get("/meetings/{meeting_id}/pdf")
 def export_briefing_pdf(meeting_id: str):
@@ -204,3 +216,4 @@ def export_briefing_pdf(meeting_id: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+

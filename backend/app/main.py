@@ -2,6 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.meetings import router as meetings_router
+from backend.app.api.auth import router as auth_router
 from backend.app.database.db import init_db
 from backend.app.config import settings
 
@@ -36,6 +37,7 @@ def on_startup():
         logger.warning(f"Missing API credentials: {status['missing_keys']}")
 
 # Mount API routes under /api
+app.include_router(auth_router, prefix="/api", tags=["auth"])
 app.include_router(meetings_router, prefix="/api", tags=["meetings"])
 
 @app.get("/")

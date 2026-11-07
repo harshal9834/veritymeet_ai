@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: veritymeet-ai
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: BIFROST_BASE_URL
+        sync: false
+      - key: BIFROST_API_KEY
+        sync: false
+      - key: GROK_MODEL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true

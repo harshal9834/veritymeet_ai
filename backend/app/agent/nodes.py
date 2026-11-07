@@ -1,5 +1,6 @@
 import logging
 import json
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List
 
@@ -59,11 +60,19 @@ def node_research_planner(state: AgentState) -> Dict[str, Any]:
 
     prompt = get_research_planner_prompt(
         target_name=state["target_name"],
-        meeting_type=state["meeting_type"],
+        meeting_type=state.get("meeting_type", "Executive Briefing"),
         meeting_date=state["meeting_date"],
         context=state.get("context", ""),
         objective=state.get("objective", ""),
-        interests=state.get("interests", [])
+        interests=state.get("interests", []),
+        target_type=state.get("target_type", "Company"),
+        company_website=state.get("company_website", ""),
+        person_designation=state.get("person_designation", ""),
+        person_name=state.get("person_name", ""),
+        target_industry=state.get("target_industry", ""),
+        user_offering=state.get("user_offering", ""),
+        custom_research_instructions=state.get("custom_research_instructions", ""),
+        research_period=state.get("research_period", "Last 30 days")
     )
 
     try:
@@ -350,6 +359,7 @@ def node_evidence_evaluation(state: AgentState) -> Dict[str, Any]:
             ])
             evaluation["claim_id"] = cid
             evaluations.append(evaluation)
+            time.sleep(1.0)  # Gentle spacing to stay well within Groq TPM limits
         except Exception as e:
             logger.warning(f"Evidence evaluation failed for {cid}: {e}")
             evaluations.append({
@@ -488,11 +498,12 @@ def node_final_briefing(state: AgentState) -> Dict[str, Any]:
 
     prompt = get_final_briefing_prompt(
         target_name=state["target_name"],
-        meeting_type=state["meeting_type"],
+        meeting_type=state.get("meeting_type", "Executive Briefing"),
         meeting_date=state["meeting_date"],
         draft_briefing=draft,
         verified_claims=scored_claims,
-        sources=sources
+        sources=sources,
+        meeting_context=state
     )
 
     try:

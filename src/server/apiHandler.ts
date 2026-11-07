@@ -146,7 +146,8 @@ function getEnvConfig() {
     TAVILY_API_KEY: parseVar('TAVILY_API_KEY'),
     BIFROST_BASE_URL: parseVar('BIFROST_BASE_URL', 'https://api.bifrost.maxim.ai/v1'),
     BIFROST_API_KEY: parseVar('BIFROST_API_KEY'),
-    GROK_MODEL: parseVar('GROK_MODEL', 'grok-2-latest'),
+    GROK_API: parseVar('GROK_API'),
+    GROK_MODEL: parseVar('GROK_MODEL', 'openai/gpt-oss-120b'),
   };
 }
 
@@ -283,10 +284,25 @@ async function runTavilySearch(apiKey: string, query: string, days = 30): Promis
 
 // Real Bifrost LLM Gateway Client (xAI Grok)
 async function runBifrostGrok(config: ReturnType<typeof getEnvConfig>, messages: any[], jsonFormat = true): Promise<any> {
-  const endpoint = config.BIFROST_BASE_URL.replace(/\/$/, '') + (config.BIFROST_BASE_URL.endsWith('/chat/completions') ? '' : '/chat/completions');
+  let endpoint = config.BIFROST_BASE_URL.replace(/\/$/, '') + (config.BIFROST_BASE_URL.endsWith('/chat/completions') ? '' : '/chat/completions');
+  let headers: Record<string, string> = {
+    'Authorization': `Bearer ${config.BIFROST_API_KEY}`,
+    'x-api-key': config.BIFROST_API_KEY,
+    'Content-Type': 'application/json',
+  };
+  let model = config.GROK_MODEL || 'openai/gpt-oss-120b';
+
+  if (config.GROK_API) {
+    endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+    headers = {
+      'Authorization': `Bearer ${config.GROK_API}`,
+      'Content-Type': 'application/json',
+    };
+    if (!model.startsWith('openai/')) model = 'openai/gpt-oss-120b';
+  }
 
   const body: any = {
-    model: config.GROK_MODEL || 'grok-2-latest',
+    model,
     messages,
     temperature: 0.2,
   };
@@ -296,11 +312,7 @@ async function runBifrostGrok(config: ReturnType<typeof getEnvConfig>, messages:
 
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${config.BIFROST_API_KEY}`,
-      'x-api-key': config.BIFROST_API_KEY,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
@@ -750,7 +762,7 @@ export async function handleApiRoute(req: Request, res: Response): Promise<boole
     if (pathOnly === '/api/health' && method === 'GET') {
       const config = getEnvConfig();
       const hasTavily = Boolean(config.TAVILY_API_KEY && config.TAVILY_API_KEY.length > 5);
-      const hasBifrost = Boolean(config.BIFROST_API_KEY && config.BIFROST_API_KEY.length > 5);
+      const hasBifrost = Boolean((config.GROK_API && config.GROK_API.length > 5) || (config.BIFROST_API_KEY && config.BIFROST_API_KEY.length > 5));
       const missing = [];
       if (!hasTavily) missing.push('TAVILY_API_KEY');
       if (!hasBifrost) missing.push('BIFROST_API_KEY');
@@ -826,7 +838,7 @@ export async function handleApiRoute(req: Request, res: Response): Promise<boole
     // POST /api/meetings
     if (pathOnly === '/api/meetings' && method === 'POST') {
       const config = getEnvConfig();
-      if (!config.TAVILY_API_KEY || !config.BIFROST_API_KEY) {
+      if (!config.TAVILY_API_KEY || (!config.GROK_API && !config.BIFROST_API_KEY)) {
         res.statusCode = 400;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ detail: 'Missing required API credentials. Please configure TAVILY_API_KEY and BIFROST_API_KEY.' }));
@@ -885,6 +897,19 @@ export async function handleApiRoute(req: Request, res: Response): Promise<boole
       if (!subRoute && method === 'GET') {
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(meeting));
+        return true;
+      }
+
+      // DELETE /api/meetings/:id
+      if (!subRoute && method === 'DELETE') {
+        delete meetings[meetingId];
+        delete briefings[meetingId];
+        delete sources[meetingId];
+        delete claims[meetingId];
+        delete workflowEvents[meetingId];
+        persistDb();
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ status: 'deleted', id: meetingId }));
         return true;
       }
 
