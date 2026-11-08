@@ -22,7 +22,12 @@ class BifrostService:
 
         # Priority 1: Bifrost Virtual Key Gateway integration (as required by specification)
         if bifrost_key:
-            endpoint = bifrost_base if bifrost_base.endswith("/chat/completions") else f"{bifrost_base}/v1/chat/completions"
+            if bifrost_base.endswith("/chat/completions"):
+                endpoint = bifrost_base
+            elif bifrost_base.endswith("/v1"):
+                endpoint = f"{bifrost_base}/chat/completions"
+            else:
+                endpoint = f"{bifrost_base}/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {bifrost_key}",
                 "Content-Type": "application/json"
