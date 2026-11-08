@@ -9,7 +9,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = parseInt(process.env.PORT || '10000', 10);
-const FASTAPI_PORT = 8000;
+// Ensure FastAPI runs on an isolated internal port that never collides with the public PORT
+let FASTAPI_PORT = parseInt(process.env.INTERNAL_API_PORT || (PORT === 8000 ? '8001' : '8000'), 10);
+if (FASTAPI_PORT === PORT) {
+  FASTAPI_PORT = PORT + 1;
+}
 const isProd = process.env.NODE_ENV === 'production';
 
 let pythonProcess: ChildProcess | null = null;
